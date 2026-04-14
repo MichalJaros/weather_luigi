@@ -8,20 +8,26 @@ repo_root/
 ├── pipeline.py
 └── main.py
 ```
+
 ** download_api.py **
+
 Odpowiada za:
 •	pobranie danych z API, 
 •	policzenie checksum, 
 •	utworzenie katalogu dla konkretnego przebiegu, 
 •	zapis surowych danych do raw_input.json, 
 •	zapis metadanych przebiegu do run_metadata.json.
+
 ** pipeline.py **
+
 Zawiera taski Luigi:
 •	ExtractTask 
 •	TransformTask 
 •	FinalTask 
 Pipeline działa dla konkretnego checksum, który identyfikuje jedną wersję danych wejściowych.
+
 ** main.py **
+
 To punkt wejścia programu. Odpowiada za:
 •	pobranie danych, 
 •	policzenie checksum, 
