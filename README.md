@@ -9,7 +9,7 @@ repo_root/
 └── main.py
 ```
 
-** download_api.py **
+**download_api.py**
 
 Odpowiada za:
 •	pobranie danych z API, 
@@ -18,7 +18,7 @@ Odpowiada za:
 •	zapis surowych danych do raw_input.json, 
 •	zapis metadanych przebiegu do run_metadata.json.
 
-** pipeline.py **
+**pipeline.py**
 
 Zawiera taski Luigi:
 •	ExtractTask 
@@ -26,7 +26,7 @@ Zawiera taski Luigi:
 •	FinalTask 
 Pipeline działa dla konkretnego checksum, który identyfikuje jedną wersję danych wejściowych.
 
-** main.py **
+**main.py**
 
 To punkt wejścia programu. Odpowiada za:
 •	pobranie danych, 
