@@ -1,7 +1,0 @@
-{
-  "36b2cf03b7d0df11a2bcd5dc213cd27dfa176fb4ac2fd4c3d83f07def9526978": {
-    "processed_at": "2026-04-14T12:26:47",
-    "source": "open-meteo",
-    "raw_input_path": "artifacts/36b2cf03b7d0df11a2bcd5dc213cd27dfa176fb4ac2fd4c3d83f07def9526978/extract/raw_input.json"
-  }
-}
