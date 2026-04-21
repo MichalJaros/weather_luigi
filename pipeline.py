@@ -1,128 +1,127 @@
-import datetime
+import hashlib
 import json
 import os
 
 import luigi
+import requests
 
-
-ARTIFACTS_DIR = "artifacts"
-
-
-def stage_file(checksum: str, stage: str, filename: str) -> str:
-    return os.path.join(ARTIFACTS_DIR, checksum, stage, filename)
-
-
-def write_stage_metadata(checksum: str, stage: str, input_path: str, output_path: str, extra: dict | None = None) -> None:
-    metadata = {
-        "stage": stage,
-        "checksum": checksum,
-        "input_path": input_path.replace("\\", "/"),
-        "output_path": output_path.replace("\\", "/"),
-        "produced_at": datetime.datetime.now().isoformat(timespec="seconds"),
-    }
-    if extra:
-        metadata.update(extra)
-
-    metadata_path = stage_file(checksum, stage, "metadata.json")
-    with open(metadata_path, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, ensure_ascii=False, indent=2)
 
 
 class ExtractTask(luigi.Task):
-    checksum = luigi.Parameter()
+    run_id = luigi.Parameter()
 
     def output(self):
-        return luigi.LocalTarget(stage_file(self.checksum, "extract", "extracted.json"))
+        return luigi.LocalTarget(os.path.join("output","extracted.json"))
+
+    def calculate_checksum(self):
+        output_path = self.output().path
+        with open(output_path, "rb") as output_file:
+            checksum = hashlib.file_digest(output_file, "sha256").hexdigest()
+        checksum_path = f"{output_path}.checksum"
+        with open(checksum_path, "w") as checksum_file:
+            json.dump({"run_id": self.run_id, "checksum": checksum}, checksum_file)
+
+    def get_checksum(self):
+        checksum_path = f"{self.output().path}.checksum"
+        try:
+            with open(checksum_path) as checksum_file:
+                checksum_data = json.load(checksum_file)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
+
+        if checksum_data.get("run_id") != self.run_id:
+            return None
+
+        return checksum_data.get("checksum")
 
     def run(self):
-        print("RUNNING EXTRACT")
+        with self.output().open("w") as fo:
+            response = requests.get("https://api.open-meteo.com/v1/forecast?latitude=52.23&longitude=22.01&current_weather=true", headers={}, timeout=30)
+            response.raise_for_status()
+            json.dump(response.json(), fo)
+        self.calculate_checksum()
 
-        raw_input_path = stage_file(self.checksum, "extract", "raw_input.json")
-
-        with open(raw_input_path, "r", encoding="utf-8") as f:
-            raw_data = json.load(f)
-
-        extracted = {
-            "checksum": self.checksum,
-            "temperature_celsius": raw_data["current_weather"]["temperature"],
-            "windspeed": raw_data["current_weather"]["windspeed"],
-        }
-
-        with self.output().open("w") as f:
-            json.dump(extracted, f, ensure_ascii=False, indent=2)
-
-        write_stage_metadata(
-            checksum=self.checksum,
-            stage="extract",
-            input_path=raw_input_path,
-            output_path=self.output().path,
-            extra={"description": "Wyciągnięto interesujące pola z raw_input.json"},
-        )
+    def complete(self):
+        output_exists = super().complete()
+        if not output_exists:
+            return False
+        return self.get_checksum() is not None
 
 
 class TransformTask(luigi.Task):
-    checksum = luigi.Parameter()
+    run_id = luigi.Parameter()
 
     def requires(self):
-        return ExtractTask(checksum=self.checksum)
+        return ExtractTask(run_id=self.run_id)
 
     def output(self):
-        return luigi.LocalTarget(stage_file(self.checksum, "transform", "transformed.json"))
+        return luigi.LocalTarget(os.path.join("output","transformed.json"))
+
+    def calculate_checksum(self):
+        checksum_path = f"{self.output().path}.checksum"
+        extract_task = self.requires()
+        with open(f"{extract_task.output().path}.checksum") as checksum_file:
+            checksum_data = json.load(checksum_file)
+        with open(checksum_path, "w") as checksum_file:
+            json.dump({"run_id": self.run_id, "checksum": checksum_data["checksum"]}, checksum_file)
+
+    def get_checksum(self):
+        checksum_path = f"{self.output().path}.checksum"
+        try:
+            with open(checksum_path) as checksum_file:
+                checksum_data = json.load(checksum_file)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
+
+        if checksum_data.get("run_id") != self.run_id:
+            return None
+
+        return checksum_data.get("checksum")
 
     def run(self):
-        print("RUNNING TRANSFORM")
+        with self.input().open("r") as fi:
+            extracted = json.load(fi)
+            temperature_celsius = extracted["current_weather"]["temperature"]
+            temperature_kelvin = round(temperature_celsius + 273.15, 2)
+            transformed = {
+                "temperature_celsius": temperature_celsius,
+                "temperature_kelvin": temperature_kelvin,
+                "windspeed": extracted["current_weather"]["windspeed"],
+            }
+            with self.output().open("w") as fo:
+                json.dump(transformed, fo, ensure_ascii=False, indent=2)
+        self.calculate_checksum()
 
-        with self.input().open("r") as f:
-            extracted = json.load(f)
-
-        temperature_celsius = extracted["temperature_celsius"]
-        temperature_kelvin = round(temperature_celsius + 273.15, 2)
-
-        transformed = {
-            "checksum": self.checksum,
-            "temperature_celsius": temperature_celsius,
-            "temperature_kelvin": temperature_kelvin,
-            "windspeed": extracted["windspeed"],
-        }
-
-        with self.output().open("w") as f:
-            json.dump(transformed, f, ensure_ascii=False, indent=2)
-
-        write_stage_metadata(
-            checksum=self.checksum,
-            stage="transform",
-            input_path=self.input().path,
-            output_path=self.output().path,
-            extra={"description": "Przeliczono temperaturę z Celsjuszy na Kelviny"},
-        )
+    def complete(self):
+        output_exists = super().complete()
+        if not output_exists:
+            return False
+        dependencies_completed = all(task.complete() for task in luigi.task.flatten(self.requires()))
+        if not dependencies_completed:
+            return False
+        return self.get_checksum() == self.requires().get_checksum()
 
 
 class FinalTask(luigi.Task):
-    checksum = luigi.Parameter()
+    run_id = luigi.Parameter()
 
     def requires(self):
-        return TransformTask(checksum=self.checksum)
+        return TransformTask(run_id=self.run_id)
 
     def output(self):
-        return luigi.LocalTarget(stage_file(self.checksum, "final", "final.txt"))
+        return luigi.LocalTarget(os.path.join("output","final.json"))
 
     def run(self):
-        print("RUNNING FINAL")
+        with self.input().open("r") as fi:
+            transformed = json.load(fi)
+            with self.output().open("w") as fo:
+                fo.write("PIPELINE FINISHED\n")
+                fo.write(f"temperature_celsius: {transformed['temperature_celsius']}\n")
+                fo.write(f"temperature_kelvin: {transformed['temperature_kelvin']}\n")
+                fo.write(f"windspeed: {transformed['windspeed']}\n")
 
-        with self.input().open("r") as f:
-            transformed = json.load(f)
-
-        with self.output().open("w") as f:
-            f.write("PIPELINE FINISHED\n")
-            f.write(f"checksum: {self.checksum}\n")
-            f.write(f"temperature_celsius: {transformed['temperature_celsius']}\n")
-            f.write(f"temperature_kelvin: {transformed['temperature_kelvin']}\n")
-            f.write(f"windspeed: {transformed['windspeed']}\n")
-
-        write_stage_metadata(
-            checksum=self.checksum,
-            stage="final",
-            input_path=self.input().path,
-            output_path=self.output().path,
-            extra={"description": "Zapisano końcowe podsumowanie pipeline"},
-        )
+    def complete(self):
+        output_exists = super().complete()
+        if not output_exists:
+            return False
+        return all(task.complete() for task in luigi.task.flatten(self.requires()))
