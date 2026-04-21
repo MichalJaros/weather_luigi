@@ -4,16 +4,12 @@ import json
 import os
 
 import requests
-from dotenv import load_dotenv
-
-
-load_dotenv()
 
 API_URL = os.getenv(
     "API_URL",
     "https://api.open-meteo.com/v1/forecast?latitude=52.23&longitude=21.01&current_weather=true",
 )
-API_KEY = os.getenv("API_KEY")
+API_KEY = os.getenv("API_KEY", "")
 ARTIFACTS_DIR = "artifacts"
 
 

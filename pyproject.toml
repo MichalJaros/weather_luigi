@@ -1,0 +1,10 @@
+[project]
+name = "weather-luigi"
+version = "0.1.0"
+dependencies = [
+    "luigi>=3.8.0",
+    "requests>=2.33.1",
+]
+
+[tool.uv]
+dev-dependencies = []
